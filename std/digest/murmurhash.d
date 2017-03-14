@@ -496,29 +496,78 @@ struct MurmurHash3(uint size /* 32 or 128 */ , uint opt = size_t.sizeof == 8 ? 6
         // Buffer should never be full while entering this function.
         assert(bufferSize < Element.sizeof);
 
-        // Check if we have some leftover data in the buffer. Then fill the first block buffer.
+        // Check if we don't even fill up a single block buffer.
         if (bufferSize + data.length < Element.sizeof)
         {
             buffer.data[bufferSize .. bufferSize + data.length] = data[];
             bufferSize += data.length;
             return;
         }
-        const bufferLeeway = Element.sizeof - bufferSize;
-        assert(bufferLeeway <= Element.sizeof);
-        buffer.data[bufferSize .. $] = data[0 .. bufferLeeway];
-        putElement(buffer.block);
-        data = data[bufferLeeway .. $];
+
+        // Check if we have some leftover data in the buffer. Then fill the first block buffer.
+        const bool haveLeewayElement = (bufferSize != 0);
+        if (haveLeewayElement)
+        {
+            const bufferLeeway = Element.sizeof - bufferSize;
+            assert(bufferLeeway < Element.sizeof);
+            buffer.data[bufferSize .. $] = data[0 .. bufferLeeway];
+            putElement(buffer.block);
+            data = data[bufferLeeway .. $];
+        }
 
         // Do main work: process chunks of `Element.sizeof` bytes.
-        const numElements = data.length / Element.sizeof;
-        const remainderStart = numElements * Element.sizeof;
-        foreach (ref const Element block; cast(const(Element[]))(data[0 .. remainderStart]))
+        size_t processChunks(TChunk)()
         {
-            putElement(block);
+            const numFullChunks = data.length / TChunk.sizeof;
+            foreach (ref const chunk; cast(const(TChunk)[]) data[0 .. numFullChunks * TChunk.sizeof])
+            {
+                auto block = cast(Element) chunk; // TODO: LDC assertion if using const instead of auto
+                putElement(block);
+            }
+            return numFullChunks;
         }
-        // +1 for bufferLeeway Element.
-        element_count += (numElements + 1) * Element.sizeof;
-        data = data[remainderStart .. $];
+
+        version(X86)         enum haveUnalignedLoads = true;
+        else version(X86_64) enum haveUnalignedLoads = true;
+        else                 enum haveUnalignedLoads = false;
+
+        size_t numChunks = 0;
+        static if (haveUnalignedLoads)
+        {
+            numChunks = processChunks!Element();
+        }
+        else
+        {
+            const startAddress = cast(size_t) data.ptr;
+            static if (size >= 64)
+            {
+                if ((startAddress & 7) == 0)
+                    numChunks = processChunks!(ulong[size / 64])();
+                else if ((startAddress & 3) == 0)
+                    numChunks = processChunks!(uint[size / 32])();
+                else if ((startAddress & 1) == 0)
+                    numChunks = processChunks!(ushort[size / 16])();
+                else
+                    numChunks = processChunks!(ubyte[size / 8])();
+            }
+            else
+            {
+                static assert(size == 32);
+                if ((startAddress & 3) == 0)
+                    numChunks = processChunks!(uint)();
+                /* TODO: cannot cast slice to Element = uint
+                else if ((startAddress & 1) == 0)
+                    numChunks = processChunks!(ushort[2])();
+                else
+                    numChunks = processChunks!(ubyte[4])();
+                */
+                else
+                    numChunks = processChunks!(uint)();
+            }
+        }
+
+        element_count += (numChunks + haveLeewayElement) * Element.sizeof;
+        data = data[numChunks * Element.sizeof .. $];
 
         // Now add remaining data to buffer.
         assert(data.length < Element.sizeof);
