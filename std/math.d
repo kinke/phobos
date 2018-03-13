@@ -1154,7 +1154,7 @@ real atan(real x) @safe pure nothrow @nogc
     version(InlineAsm_X86_Any_X87)
     {
         if (!__ctfe)
-            return atan2(x, 1.0L);
+            return atan2Asm(x, 1.0L);
     }
     return atanImpl(x);
 }
@@ -1350,91 +1350,100 @@ private T atanImpl(T)(T x) @safe pure nothrow @nogc
  *      $(TR $(TD $(PLUSMN)$(INFIN)) $(TD -$(INFIN))    $(TD $(PLUSMN)3$(PI)/4))
  *      )
  */
-real atan2(real y, real x) @trusted pure nothrow @nogc
+real atan2(real y, real x) @trusted pure nothrow @nogc // TODO: @safe
 {
     version(InlineAsm_X86_Any_X87)
     {
-        version (Win64)
-        {
-            asm pure nothrow @nogc {
-                naked;
-                fld real ptr [RDX]; // y
-                fld real ptr [RCX]; // x
-                fpatan;
-                ret;
-            }
-        }
-        else
-        {
-            asm pure nothrow @nogc {
-                fld y;
-                fld x;
-                fpatan;
-            }
-        }
+        if (!__ctfe)
+            return atan2Asm(y, x);
     }
-    else
-    {
-        // Special cases.
-        if (isNaN(x) || isNaN(y))
-            return real.nan;
-        if (y == 0.0)
-        {
-            if (x >= 0 && !signbit(x))
-                return copysign(0, y);
-            else
-                return copysign(PI, y);
-        }
-        if (x == 0.0)
-            return copysign(PI_2, y);
-        if (isInfinity(x))
-        {
-            if (signbit(x))
-            {
-                if (isInfinity(y))
-                    return copysign(3*PI_4, y);
-                else
-                    return copysign(PI, y);
-            }
-            else
-            {
-                if (isInfinity(y))
-                    return copysign(PI_4, y);
-                else
-                    return copysign(0.0, y);
-            }
-        }
-        if (isInfinity(y))
-            return copysign(PI_2, y);
-
-        // Call atan and determine the quadrant.
-        real z = atan(y / x);
-
-        if (signbit(x))
-        {
-            if (signbit(y))
-                z = z - PI;
-            else
-                z = z + PI;
-        }
-
-        if (z == 0.0)
-            return copysign(z, y);
-
-        return z;
-    }
+    return atan2Impl(y, x);
 }
 
 /// ditto
 double atan2(double y, double x) @safe pure nothrow @nogc
 {
-    return atan2(cast(real) y, cast(real) x);
+    return atan2Impl(y, x);
 }
 
 /// ditto
 float atan2(float y, float x) @safe pure nothrow @nogc
 {
-    return atan2(cast(real) y, cast(real) x);
+    return atan2Impl(y, x);
+}
+
+version(InlineAsm_X86_Any_X87)
+private real atan2Asm(real y, real x) @trusted pure nothrow @nogc
+{
+    version (Win64)
+    {
+        asm pure nothrow @nogc {
+            naked;
+            fld real ptr [RDX]; // y
+            fld real ptr [RCX]; // x
+            fpatan;
+            ret;
+        }
+    }
+    else
+    {
+        asm pure nothrow @nogc {
+            fld y;
+            fld x;
+            fpatan;
+        }
+    }
+}
+
+private T atan2Impl(T)(T y, T x) @safe pure nothrow @nogc
+{
+    // Special cases.
+    if (isNaN(x) || isNaN(y))
+        return T.nan;
+    if (y == cast(T) 0.0)
+    {
+        if (x >= 0 && !signbit(x))
+            return copysign(0, y);
+        else
+            return copysign(cast(T) PI, y);
+    }
+    if (x == cast(T) 0.0)
+        return copysign(cast(T) PI_2, y);
+    if (isInfinity(x))
+    {
+        if (signbit(x))
+        {
+            if (isInfinity(y))
+                return copysign(3 * cast(T) PI_4, y);
+            else
+                return copysign(cast(T) PI, y);
+        }
+        else
+        {
+            if (isInfinity(y))
+                return copysign(cast(T) PI_4, y);
+            else
+                return copysign(cast(T) 0.0, y);
+        }
+    }
+    if (isInfinity(y))
+        return copysign(cast(T) PI_2, y);
+
+    // Call atan and determine the quadrant.
+    T z = atan(y / x);
+
+    if (signbit(x))
+    {
+        if (signbit(y))
+            z = z - cast(T) PI;
+        else
+            z = z + cast(T) PI;
+    }
+
+    if (z == cast(T) 0.0)
+        return copysign(z, y);
+
+    return z;
 }
 
 @system unittest
