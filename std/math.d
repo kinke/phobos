@@ -1884,146 +1884,175 @@ version(none) // LDC FIXME: Use of this LLVM intrinsic causes a unit test failur
 else
 {
 
-real exp(real x) @trusted pure nothrow @nogc
+real exp(real x) @trusted pure nothrow @nogc // TODO: @safe
 {
     version(InlineAsm_X86_X87)
     {
         //  e^^x = 2^^(LOG2E*x)
         // (This is valid because the overflow & underflow limits for exp
         // and exp2 are so similar).
-        return exp2(LOG2E*x);
+        if (!__ctfe)
+            return exp2(LOG2E*x);
     }
     else version(InlineAsm_X86_64_X87)
     {
         //  e^^x = 2^^(LOG2E*x)
         // (This is valid because the overflow & underflow limits for exp
         // and exp2 are so similar).
-        return exp2(LOG2E*x);
+        if (!__ctfe)
+            return exp2(LOG2E*x);
     }
-    else
-    {
-        alias F = floatTraits!real;
-        static if (F.realFormat == RealFormat.ieeeDouble)
-        {
-            // Coefficients for exp(x)
-            static immutable real[3] P = [
-                9.99999999999999999910E-1L,
-                3.02994407707441961300E-2L,
-                1.26177193074810590878E-4L,
-            ];
-            static immutable real[4] Q = [
-                2.00000000000000000009E0L,
-                2.27265548208155028766E-1L,
-                2.52448340349684104192E-3L,
-                3.00198505138664455042E-6L,
-            ];
-
-            // C1 + C2 = LN2.
-            enum real C1 = 6.93145751953125E-1;
-            enum real C2 = 1.42860682030941723212E-6;
-
-            // Overflow and Underflow limits.
-            enum real OF =  7.09782712893383996732E2;  // ln((1-2^-53) * 2^1024)
-            enum real UF = -7.451332191019412076235E2; // ln(2^-1075)
-        }
-        else static if (F.realFormat == RealFormat.ieeeExtended)
-        {
-            // Coefficients for exp(x)
-            static immutable real[3] P = [
-                9.9999999999999999991025E-1L,
-                3.0299440770744196129956E-2L,
-                1.2617719307481059087798E-4L,
-            ];
-            static immutable real[4] Q = [
-                2.0000000000000000000897E0L,
-                2.2726554820815502876593E-1L,
-                2.5244834034968410419224E-3L,
-                3.0019850513866445504159E-6L,
-            ];
-
-            // C1 + C2 = LN2.
-            enum real C1 = 6.9314575195312500000000E-1L;
-            enum real C2 = 1.4286068203094172321215E-6L;
-
-            // Overflow and Underflow limits.
-            enum real OF =  1.1356523406294143949492E4L;  // ln((1-2^-64) * 2^16384)
-            enum real UF = -1.13994985314888605586758E4L; // ln(2^-16446)
-        }
-        else static if (F.realFormat == RealFormat.ieeeQuadruple)
-        {
-            // Coefficients for exp(x) - 1
-            static immutable real[5] P = [
-                9.999999999999999999999999999999999998502E-1L,
-                3.508710990737834361215404761139478627390E-2L,
-                2.708775201978218837374512615596512792224E-4L,
-                6.141506007208645008909088812338454698548E-7L,
-                3.279723985560247033712687707263393506266E-10L
-            ];
-            static immutable real[6] Q = [
-                2.000000000000000000000000000000000000150E0,
-                2.368408864814233538909747618894558968880E-1L,
-                3.611828913847589925056132680618007270344E-3L,
-                1.504792651814944826817779302637284053660E-5L,
-                1.771372078166251484503904874657985291164E-8L,
-                2.980756652081995192255342779918052538681E-12L
-            ];
-
-            // C1 + C2 = LN2.
-            enum real C1 = 6.93145751953125E-1L;
-            enum real C2 = 1.428606820309417232121458176568075500134E-6L;
-
-            // Overflow and Underflow limits.
-            enum real OF =  1.135583025911358400418251384584930671458833e4L;
-            enum real UF = -1.143276959615573793352782661133116431383730e4L;
-        }
-        else
-            static assert(0, "Not implemented for this architecture");
-
-        // Special cases. Raises an overflow or underflow flag accordingly,
-        // except in the case for CTFE, where there are no hardware controls.
-        if (isNaN(x))
-            return x;
-        if (x > OF)
-        {
-            if (__ctfe)
-                return real.infinity;
-            else
-                return real.max * copysign(real.max, real.infinity);
-        }
-        if (x < UF)
-        {
-            if (__ctfe)
-                return 0.0;
-            else
-                return real.min_normal * copysign(real.min_normal, 0.0);
-        }
-
-        // Express: e^^x = e^^g * 2^^n
-        //   = e^^g * e^^(n * LOG2E)
-        //   = e^^(g + n * LOG2E)
-        int n = cast(int) floor(LOG2E * x + 0.5);
-        x -= n * C1;
-        x -= n * C2;
-
-        // Rational approximation for exponential of the fractional part:
-        //  e^^x = 1 + 2x P(x^^2) / (Q(x^^2) - P(x^^2))
-        const real xx = x * x;
-        const real px = x * poly(xx, P);
-        x = px / (poly(xx, Q) - px);
-        x = 1.0 + ldexp(x, 1);
-
-        // Scale by power of 2.
-        x = ldexp(x, n);
-
-        return x;
-    }
+    return expImpl(x);
 }
 
 /// ditto
-double exp(double x) @safe pure nothrow @nogc  { return exp(cast(real) x); }
+double exp(double x) @safe pure nothrow @nogc { return expImpl(x); }
 
 /// ditto
-float exp(float x)  @safe pure nothrow @nogc   { return exp(cast(real) x); }
+float exp(float x) @safe pure nothrow @nogc { return expImpl(x); }
+
+private T expImpl(T)(T x) @safe pure nothrow @nogc
+{
+    alias F = floatTraits!T;
+    static if (F.realFormat == RealFormat.ieeeSingle)
+    {
+        enum T C1 = 0.693359375;
+        enum T C2 = -2.12194440e-4;
+
+        // Overflow and Underflow limits.
+        enum T OF = 88.72283905206835;
+        enum T UF = -103.278929903431851103; // ln(2^-149)
+    }
+    else static if (F.realFormat == RealFormat.ieeeDouble)
+    {
+        // Coefficients for exp(x)
+        static immutable T[3] P = [
+            9.99999999999999999910E-1L,
+            3.02994407707441961300E-2L,
+            1.26177193074810590878E-4L,
+        ];
+        static immutable T[4] Q = [
+            2.00000000000000000009E0L,
+            2.27265548208155028766E-1L,
+            2.52448340349684104192E-3L,
+            3.00198505138664455042E-6L,
+        ];
+
+        // C1 + C2 = LN2.
+        enum T C1 = 6.93145751953125E-1;
+        enum T C2 = 1.42860682030941723212E-6;
+
+        // Overflow and Underflow limits.
+        enum T OF =  7.09782712893383996732E2;  // ln((1-2^-53) * 2^1024)
+        enum T UF = -7.451332191019412076235E2; // ln(2^-1075)
+    }
+    else static if (F.realFormat == RealFormat.ieeeExtended)
+    {
+        // Coefficients for exp(x)
+        static immutable T[3] P = [
+            9.9999999999999999991025E-1L,
+            3.0299440770744196129956E-2L,
+            1.2617719307481059087798E-4L,
+        ];
+        static immutable T[4] Q = [
+            2.0000000000000000000897E0L,
+            2.2726554820815502876593E-1L,
+            2.5244834034968410419224E-3L,
+            3.0019850513866445504159E-6L,
+        ];
+
+        // C1 + C2 = LN2.
+        enum T C1 = 6.9314575195312500000000E-1L;
+        enum T C2 = 1.4286068203094172321215E-6L;
+
+        // Overflow and Underflow limits.
+        enum T OF =  1.1356523406294143949492E4L;  // ln((1-2^-64) * 2^16384)
+        enum T UF = -1.13994985314888605586758E4L; // ln(2^-16446)
+    }
+    else static if (F.realFormat == RealFormat.ieeeQuadruple)
+    {
+        // Coefficients for exp(x) - 1
+        static immutable T[5] P = [
+            9.999999999999999999999999999999999998502E-1L,
+            3.508710990737834361215404761139478627390E-2L,
+            2.708775201978218837374512615596512792224E-4L,
+            6.141506007208645008909088812338454698548E-7L,
+            3.279723985560247033712687707263393506266E-10L
+        ];
+        static immutable T[6] Q = [
+            2.000000000000000000000000000000000000150E0,
+            2.368408864814233538909747618894558968880E-1L,
+            3.611828913847589925056132680618007270344E-3L,
+            1.504792651814944826817779302637284053660E-5L,
+            1.771372078166251484503904874657985291164E-8L,
+            2.980756652081995192255342779918052538681E-12L
+        ];
+
+        // C1 + C2 = LN2.
+        enum T C1 = 6.93145751953125E-1L;
+        enum T C2 = 1.428606820309417232121458176568075500134E-6L;
+
+        // Overflow and Underflow limits.
+        enum T OF =  1.135583025911358400418251384584930671458833e4L;
+        enum T UF = -1.143276959615573793352782661133116431383730e4L;
+    }
+    else
+        static assert(0, "Not implemented for this architecture");
+
+    // Special cases. Raises an overflow or underflow flag accordingly,
+    // except in the case for CTFE, where there are no hardware controls.
+    if (isNaN(x))
+        return x;
+    if (x > OF)
+    {
+        if (__ctfe)
+            return T.infinity;
+        else
+            return T.max * copysign(T.max, T.infinity);
+    }
+    if (x < UF)
+    {
+        if (__ctfe)
+            return cast(T) 0.0;
+        else
+            return T.min_normal * copysign(T.min_normal, cast(T) 0.0);
+    }
+
+    // Express: e^^x = e^^g * 2^^n
+    //   = e^^g * e^^(n * LOG2E)
+    //   = e^^(g + n * LOG2E)
+    T xx = floor((cast(T) LOG2E) * x + cast(T) 0.5);
+    const int n = cast(int) xx;
+    x -= xx * C1;
+    x -= xx * C2;
+
+    static if (F.realFormat == RealFormat.ieeeSingle)
+    {
+        xx = x * x;
+        x = ((((( 1.9875691500E-4f  * x
+                + 1.3981999507E-3f) * x
+                + 8.3334519073E-3f) * x
+                + 4.1665795894E-2f) * x
+                + 1.6666665459E-1f) * x
+                + 5.0000001201E-1f) * xx
+                + x
+                + 1.0f;
+    }
+    else
+    {
+        // Rational approximation for exponential of the fractional part:
+        //  e^^x = 1 + 2x P(x^^2) / (Q(x^^2) - P(x^^2))
+        xx = x * x;
+        const T px = x * poly(xx, P);
+        x = px / (poly(xx, Q) - px);
+        x = (cast(T) 1.0) + ldexp(x, 1);
+    }
+
+    // Scale by power of 2.
+    x = ldexp(x, n);
+
+    return x;
+}
 
 } // !none
 
