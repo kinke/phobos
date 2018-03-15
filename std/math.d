@@ -1892,7 +1892,7 @@ real exp(real x) @trusted pure nothrow @nogc // TODO: @safe
         // (This is valid because the overflow & underflow limits for exp
         // and exp2 are so similar).
         if (!__ctfe)
-            return exp2(LOG2E*x);
+            return exp2Asm(LOG2E*x);
     }
     else version(InlineAsm_X86_64_X87)
     {
@@ -1900,7 +1900,7 @@ real exp(real x) @trusted pure nothrow @nogc // TODO: @safe
         // (This is valid because the overflow & underflow limits for exp
         // and exp2 are so similar).
         if (!__ctfe)
-            return exp2(LOG2E*x);
+            return exp2Asm(LOG2E*x);
     }
     return expImpl(x);
 }
@@ -2403,21 +2403,21 @@ version(none) // LDC FIXME: Use of this LLVM intrinsic causes a unit test failur
 else
 {
 
-pragma(inline, true)
-real exp2(real x) @nogc @trusted pure nothrow
+real exp2(real x) @nogc @trusted pure nothrow // TODO: @safe
 {
     version(InlineAsm_X86_Any_X87)
     {
         if (!__ctfe)
             return exp2Asm(x);
-        else
-            return exp2Impl(x);
     }
-    else
-    {
-        return exp2Impl(x);
-    }
+    return exp2Impl(x);
 }
+
+/// ditto
+double exp2(double x) @nogc @safe pure nothrow { return exp2Impl(x); }
+
+/// ditto
+float exp2(float x) @nogc @safe pure nothrow { return exp2Impl(x); }
 
 version(InlineAsm_X86_Any_X87)
 private real exp2Asm(real x) @nogc @trusted pure nothrow
@@ -2613,12 +2613,13 @@ L_was_nan:
         static assert(0);
 }
 
-private real exp2Impl(real x) @nogc @trusted pure nothrow
+private T exp2Impl(T)(T x) @nogc @safe pure nothrow
 {
     // Coefficients for exp2(x)
-    static if (floatTraits!real.realFormat == RealFormat.ieeeQuadruple)
+    enum realFormat = floatTraits!T.realFormat;
+    static if (realFormat == RealFormat.ieeeQuadruple)
     {
-        static immutable real[5] P = [
+        static immutable T[5] P = [
             9.079594442980146270952372234833529694788E12L,
             1.530625323728429161131811299626419117557E11L,
             5.677513871931844661829755443994214173883E8L,
@@ -2626,7 +2627,7 @@ private real exp2Impl(real x) @nogc @trusted pure nothrow
             1.587171580015525194694938306936721666031E2L
         ];
 
-        static immutable real[6] Q = [
+        static immutable T[6] Q = [
             2.619817175234089411411070339065679229869E13L,
             1.490560994263653042761789432690793026977E12L,
             1.092141473886177435056423606755843616331E10L,
@@ -2635,24 +2636,50 @@ private real exp2Impl(real x) @nogc @trusted pure nothrow
             1.0
         ];
     }
-    else
+    else static if (realFormat == RealFormat.ieeeExtended)
     {
-        static immutable real[3] P = [
+        static immutable T[3] P = [
             2.0803843631901852422887E6L,
             3.0286971917562792508623E4L,
             6.0614853552242266094567E1L,
         ];
-        static immutable real[4] Q = [
+        static immutable T[4] Q = [
             6.0027204078348487957118E6L,
             3.2772515434906797273099E5L,
             1.7492876999891839021063E3L,
             1.0000000000000000000000E0L,
         ];
     }
+    else static if (realFormat == RealFormat.ieeeDouble)
+    {
+        static immutable T[3] P = [
+            1.51390680115615096133E3L,
+            2.02020656693165307700E1L,
+            2.30933477057345225087E-2L,
+        ];
+        static immutable T[3] Q = [
+            4.36821166879210612817E3L,
+            2.33184211722314911771E2L,
+            1.00000000000000000000E0L,
+        ];
+    }
+    else static if (realFormat == RealFormat.ieeeSingle)
+    {
+        static immutable T[6] P = [
+            6.931472028550421E-001L,
+            2.402264791363012E-001L,
+            5.550332471162809E-002L,
+            9.618437357674640E-003L,
+            1.339887440266574E-003L,
+            1.535336188319500E-004L,
+        ];
+    }
+    else
+        static assert(0, "no coefficients for exp2()");
 
     // Overflow and Underflow limits.
-    enum real OF =  16_384.0L;
-    enum real UF = -16_382.0L;
+    enum T OF = T.max_exp;
+    enum T UF = T.min_exp - 1;
 
     // Special cases. Raises an overflow or underflow flag accordingly,
     // except in the case for CTFE, where there are no hardware controls.
@@ -2661,28 +2688,52 @@ private real exp2Impl(real x) @nogc @trusted pure nothrow
     if (x > OF)
     {
         if (__ctfe)
-            return real.infinity;
+            return T.infinity;
         else
-            return real.max * copysign(real.max, real.infinity);
+            return T.max * copysign(T.max, T.infinity);
     }
     if (x < UF)
     {
         if (__ctfe)
             return 0.0;
         else
-            return real.min_normal * copysign(real.min_normal, 0.0);
+            return T.min_normal * copysign(T.min_normal, cast(T) 0.0);
     }
 
-    // Separate into integer and fractional parts.
-    int n = cast(int) floor(x + 0.5);
-    x -= n;
+    static if (realFormat == RealFormat.ieeeSingle) // special case for single precision
+    {
+        // The following is necessary because range reduction blows up.
+        if (x == 0.0f)
+            return 1.0f;
 
-    // Rational approximation:
-    //  exp2(x) = 1.0 + 2x P(x^^2) / (Q(x^^2) - P(x^^2))
-    const real xx = x * x;
-    const real px = x * poly(xx, P);
-    x = px / (poly(xx, Q) - px);
-    x = 1.0 + ldexp(x, 1);
+        // Separate into integer and fractional parts.
+        const T i = floor(x);
+        int n = cast(int) i;
+        x -= i;
+        if (x > 0.5f)
+        {
+            n += 1;
+            x -= 1.0f;
+        }
+
+        // Rational approximation:
+        //  exp2(x) = 1.0 + x P(x)
+        x = 1.0f + x * poly(x, P);
+    }
+    else
+    {
+        // Separate into integer and fractional parts.
+        const T i = floor(x + cast(T) 0.5);
+        int n = cast(int) i;
+        x -= i;
+
+        // Rational approximation:
+        //  exp2(x) = 1.0 + 2x P(x^^2) / (Q(x^^2) - P(x^^2))
+        const T xx = x * x;
+        const T px = x * poly(xx, P);
+        x = px / (poly(xx, Q) - px);
+        x = (cast(T) 1.0) + ldexp(x, 1);
+    }
 
     // Scale by power of 2.
     x = ldexp(x, n);
