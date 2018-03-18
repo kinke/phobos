@@ -3486,6 +3486,17 @@ alias FP_ILOGBNAN = core.stdc.math.FP_ILOGBNAN;
  * References: frexp
  */
 
+version(LDC)
+{
+    real ldexp(real n, int exp) @nogc @safe pure nothrow { return core.stdc.math.ldexpl(n, exp); }
+    ///ditto
+    double ldexp(double n, int exp) @safe pure nothrow @nogc { return core.stdc.math.ldexp(n, exp); }
+    ///ditto
+    float ldexp(float n, int exp) @safe pure nothrow @nogc { return core.stdc.math.ldexpf(n, exp); }
+}
+else
+{
+
 real ldexp(real n, int exp) @nogc @safe pure nothrow { pragma(inline, true); return core.math.ldexp(n, exp); }
 //FIXME
 ///ditto
@@ -3493,6 +3504,8 @@ double ldexp(double n, int exp) @safe pure nothrow @nogc { return ldexp(cast(rea
 //FIXME
 ///ditto
 float ldexp(float n, int exp) @safe pure nothrow @nogc { return ldexp(cast(real) n, exp); }
+
+} // !LDC
 
 ///
 @nogc @safe pure nothrow unittest
