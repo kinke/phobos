@@ -1563,6 +1563,79 @@ private T atan2Impl(T)(T y, T x) @safe pure nothrow @nogc
     return z;
 }
 
+@safe nothrow @nogc unittest
+{
+    static void testAtan2(T)()
+    {
+        // NaN
+        const T nan = T.nan;
+        assert(isNaN(atan2(nan, cast(T) 1)));
+        assert(isNaN(atan2(cast(T) 1, nan)));
+
+        const T inf = T.infinity;
+        static immutable T[3][] vals =
+        [
+            // y, x, atan2(y, x)
+
+            // ±0
+            [  0.0,  1.0,  0.0 ],
+            [ -0.0,  1.0, -0.0 ],
+            [  0.0,  0.0,  0.0 ],
+            [ -0.0,  0.0, -0.0 ],
+            [  0.0, -1.0,  PI ],
+            [ -0.0, -1.0, -PI ],
+            [  0.0, -0.0,  PI ],
+            [ -0.0, -0.0, -PI ],
+            [  1.0,  0.0,  PI_2 ],
+            [  1.0, -0.0,  PI_2 ],
+            [ -1.0,  0.0, -PI_2 ],
+            [ -1.0, -0.0, -PI_2 ],
+
+            // ±∞
+            [  1.0,  inf,  0.0 ],
+            [ -1.0,  inf, -0.0 ],
+            [  1.0, -inf,  PI ],
+            [ -1.0, -inf, -PI ],
+            [  inf,  1.0,  PI_2 ],
+            [  inf, -1.0,  PI_2 ],
+            [ -inf,  1.0, -PI_2 ],
+            [ -inf, -1.0, -PI_2 ],
+            [  inf,  inf,  PI_4 ],
+            [ -inf,  inf, -PI_4 ],
+            [  inf, -inf,  3 * PI_4 ],
+            [ -inf, -inf, -3 * PI_4 ],
+
+            [  1.0,  1.0,  PI_4 ],
+            [ -2.0,  2.0, -PI_4 ],
+            [  3.0, -3.0,  3 * PI_4 ],
+            [ -4.0, -4.0, -3 * PI_4 ],
+
+            [  0.75,  0.25,   1.249045772398 ],
+            [ -0.5,   0.375, -0.927295218002 ],
+            [  0.5,  -0.125,  1.815774989922 ],
+            [ -0.75, -0.5,   -2.158798930342 ],
+        ];
+
+        foreach (ref val; vals)
+        {
+            const T y = val[0];
+            const T x = val[1];
+            const T r = val[2];
+            const T a = atan2(y, x);
+
+            //printf("atan2(%Lg, %Lg) = %Lg, should be %Lg\n", cast(real) y, cast(real) x, cast(real) a, cast(real) r);
+            if (r == 0)
+                assert(isIdentical(r, a)); // check sign
+            else
+                assert(approxEqual(r, a));
+        }
+    }
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double, float))
+        testAtan2!T();
+}
+
 @system unittest
 {
     assert(equalsDigit(atan2(1.0L, std.math.sqrt(3.0L)), PI / 6, useDigits));
