@@ -1084,61 +1084,74 @@ private T tanImpl(T)(T x) @safe pure nothrow @nogc
 
 @safe nothrow @nogc unittest
 {
-    static real[2][] vals =     // angle,tan
-        [
-         [   0,   0],
-         [   .5,  .5463024898],
-         [   1,   1.557407725],
-         [   1.5, 14.10141995],
-         [   2,  -2.185039863],
-         [   2.5,-.7470222972],
-         [   3,  -.1425465431],
-         [   3.5, .3745856402],
-         [   4,   1.157821282],
-         [   4.5, 4.637332055],
-         [   5,  -3.380515006],
-         [   5.5,-.9955840522],
-         [   6,  -.2910061914],
-         [   6.5, .2202772003],
-         [   10,  .6483608275],
-
-         // special angles
-         [   PI_4,   1],
-         //[   PI_2,   real.infinity], // PI_2 is not _exactly_ pi/2.
-         [   3*PI_4, -1],
-         [   PI,     0],
-         [   5*PI_4, 1],
-         //[   3*PI_2, -real.infinity],
-         [   7*PI_4, -1],
-         [   2*PI,   0],
-         ];
-    int i;
-
-    for (i = 0; i < vals.length; i++)
+    static void testTan(T)()
     {
-        real x = vals[i][0];
-        real r = vals[i][1];
-        real t = tan(x);
+        // ±0
+        const T zero = 0.0;
+        assert(isIdentical(tan(zero), zero));
+        assert(isIdentical(tan(-zero), -zero));
+        // ±∞
+        const T inf = T.infinity;
+        assert(isNaN(tan(inf)));
+        assert(isNaN(tan(-inf)));
+        // NaN
+        const T specialNaN = NaN(0x0123L);
+        assert(isIdentical(tan(specialNaN), specialNaN));
 
-        //printf("tan(%Lg) = %Lg, should be %Lg\n", x, t, r);
-        if (!isIdentical(r, t)) assert(fabs(r-t) <= .0000001);
+        static immutable T[2][] vals =
+        [
+            // angle, tan
+            [   .5,  .5463024898],
+            [   1,   1.557407725],
+            [   1.5, 14.10141995],
+            [   2,  -2.185039863],
+            [   2.5,-.7470222972],
+            [   3,  -.1425465431],
+            [   3.5, .3745856402],
+            [   4,   1.157821282],
+            [   4.5, 4.637332055],
+            [   5,  -3.380515006],
+            [   5.5,-.9955840522],
+            [   6,  -.2910061914],
+            [   6.5, .2202772003],
+            [   10,  .6483608275],
 
-        x = -x;
-        r = -r;
-        t = tan(x);
-        //printf("tan(%Lg) = %Lg, should be %Lg\n", x, t, r);
-        if (!isIdentical(r, t) && !(r != r && t != t)) assert(fabs(r-t) <= .0000001);
+            // special angles
+            [   PI_4,   1],
+            //[   PI_2,   T.infinity], // PI_2 is not _exactly_ pi/2.
+            [   3*PI_4, -1],
+            [   PI,     0],
+            [   5*PI_4, 1],
+            //[   3*PI_2, -T.infinity],
+            [   7*PI_4, -1],
+            [   2*PI,   0],
+         ];
+
+        foreach (ref val; vals)
+        {
+            T x = val[0];
+            T r = val[1];
+            T t = tan(x);
+
+            //printf("tan(%Lg) = %Lg, should be %Lg\n", cast(real) x, cast(real) t, cast(real) r);
+            assert(approxEqual(r, t));
+
+            x = -x;
+            r = -r;
+            t = tan(x);
+            //printf("tan(%Lg) = %Lg, should be %Lg\n", cast(real) x, cast(real) t, cast(real) r);
+            assert(approxEqual(r, t));
+        }
     }
-    // overflow
-    assert(isNaN(tan(real.infinity)));
-    assert(isNaN(tan(-real.infinity)));
-    // NaN propagation
-    assert(isIdentical( tan(NaN(0x0123L)), NaN(0x0123L) ));
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double, float))
+        testTan!T();
 }
 
 @system unittest
 {
-    assert(equalsDigit(tan(PI / 3), std.math.sqrt(3.0), useDigits));
+    assert(equalsDigit(tan(PI / 3), std.math.sqrt(3.0L), useDigits));
 }
 
 /***************
