@@ -1393,6 +1393,54 @@ private T atanImpl(T)(T x) @safe pure nothrow @nogc
     return (sign) ? -y : y;
 }
 
+@safe nothrow @nogc unittest
+{
+    static void testAtan(T)()
+    {
+        // ±0
+        const T zero = 0.0;
+        assert(isIdentical(atan(zero), zero));
+        assert(isIdentical(atan(-zero), -zero));
+        // ±∞
+        const T inf = T.infinity;
+        assert(approxEqual(atan(inf), cast(T) PI_2));
+        assert(approxEqual(atan(-inf), cast(T) -PI_2));
+        // NaN
+        const T specialNaN = NaN(0x0123L);
+        assert(isIdentical(atan(specialNaN), specialNaN));
+
+        static immutable T[2][] vals =
+        [
+            // x, atan(x)
+            [ 0.25, 0.2449786631 ],
+            [ 0.5,  0.4636476090 ],
+            [ 1,    PI_4         ],
+            [ 1.5,  0.9827937232 ],
+            [ 10,   1.4711276743 ],
+        ];
+
+        foreach (ref val; vals)
+        {
+            T x = val[0];
+            T r = val[1];
+            T a = atan(x);
+
+            //printf("atan(%Lg) = %Lg, should be %Lg\n", cast(real) x, cast(real) a, cast(real) r);
+            assert(approxEqual(r, a));
+
+            x = -x;
+            r = -r;
+            a = atan(x);
+            //printf("atan(%Lg) = %Lg, should be %Lg\n", cast(real) x, cast(real) a, cast(real) r);
+            assert(approxEqual(r, a));
+        }
+    }
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double, float))
+        testAtan!T();
+}
+
 @system unittest
 {
     assert(equalsDigit(atan(std.math.sqrt(3.0L)), PI / 3, useDigits));
