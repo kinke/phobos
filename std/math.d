@@ -2899,12 +2899,47 @@ private T exp2Impl(T)(T x) @nogc @safe pure nothrow
 
 } // !none
 
-///
-@safe unittest
+@safe nothrow @nogc unittest
 {
-    assert(feqrel(exp2(0.5L), SQRT2) >= real.mant_dig -1);
-    assert(exp2(8.0L) == 256.0);
-    assert(exp2(-9.0L)== 1.0L/512.0);
+    static void testExp2(T)()
+    {
+        // NaN
+        const T specialNaN = NaN(0x0123L);
+        assert(isIdentical(exp2(specialNaN), specialNaN));
+
+        // over-/underflow
+        enum T OF = T.max_exp;
+        enum T UF = T.min_exp - T.mant_dig;
+        assert(isIdentical(exp2(OF + 1), cast(T) T.infinity));
+        assert(isIdentical(exp2(UF - 1), cast(T) 0.0));
+
+        static immutable T[2][] vals =
+        [
+            // x, exp2(x)
+            [  0.0, 1.0 ],
+            [ -0.0, 1.0 ],
+            [  0.5, SQRT2 ],
+            [  8.0, 256.0 ],
+            [ -9.0, 1.0 / 512 ],
+        ];
+
+        foreach (ref val; vals)
+        {
+            const T x = val[0];
+            const T r = val[1];
+            const T e = exp2(x);
+
+            //printf("exp2(%Lg) = %Lg, should be %Lg\n", cast(real) x, cast(real) e, cast(real) r);
+            assert(approxEqual(r, e));
+        }
+    }
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double, float))
+        testExp2!T();
+
+    // high-precision test
+    assert(feqrel(exp2(0.5L), SQRT2) >= real.mant_dig - 1);
 }
 
 @safe unittest
