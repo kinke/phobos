@@ -2515,7 +2515,28 @@ private T expm1Impl(T)(T x) @safe pure nothrow @nogc
     }
 }
 
+@safe nothrow @nogc unittest
+{
+    static void testExpm1(T)()
+    {
+        // NaN
+        assert(isNaN(expm1(cast(T) T.nan)));
 
+        static immutable T[] xs = [ -2, -0.75, -0.3, 0.0, 0.1, 0.2, 0.5, 1.0 ];
+        foreach (x; xs)
+        {
+            const T e = expm1(x);
+            const T r = exp(x) - 1;
+
+            //printf("expm1(%Lg) = %Lg, should approximately be %Lg\n", cast(real) x, cast(real) e, cast(real) r);
+            assert(approxEqual(r, e));
+        }
+    }
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double))
+        testExpm1!T();
+}
 
 /**
  * Calculates 2$(SUPERSCRIPT x).
