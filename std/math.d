@@ -2193,6 +2193,152 @@ private T expImpl(T)(T x) @safe pure nothrow @nogc
 
 @system unittest
 {
+    FloatingPointControl ctrl;
+    if (FloatingPointControl.hasExceptionTraps)
+        ctrl.disableExceptions(FloatingPointControl.allExceptions);
+    ctrl.rounding = FloatingPointControl.roundToNearest;
+
+    static void testExp(T)()
+    {
+        enum realFormat = floatTraits!T.realFormat;
+        static if (realFormat == RealFormat.ieeeQuadruple)
+        {
+            static immutable T[2][] exptestpoints =
+            [ //  x               exp(x)
+                [ 1.0L,           E                                        ],
+                [ 0.5L,           0x1.a61298e1e069bc972dfefab6df34p+0L     ],
+                [ 3.0L,           E*E*E                                    ],
+                [ 0x1.6p+13L,     0x1.6e509d45728655cdb4840542acb5p+16250L ], // near overflow
+                [ 0x1.7p+13L,     T.infinity                               ], // close overflow
+                [ 0x1p+80L,       T.infinity                               ], // far overflow
+                [ T.infinity,     T.infinity                               ],
+                [-0x1.18p+13L,    0x1.5e4bf54b4807034ea97fef0059a6p-12927L ], // near underflow
+                [-0x1.625p+13L,   0x1.a6bd68a39d11fec3a250cd97f524p-16358L ], // ditto
+                [-0x1.62dafp+13L, 0x0.cb629e9813b80ed4d639e875be6cp-16382L ], // near underflow - subnormal
+                [-0x1.6549p+13L,  0x0.0000000000000000000000000001p-16382L ], // ditto
+                [-0x1.655p+13L,   0                                        ], // close underflow
+                [-0x1p+30L,       0                                        ], // far underflow
+            ];
+        }
+        else static if (realFormat == RealFormat.ieeeExtended)
+        {
+            static immutable T[2][] exptestpoints =
+            [ //  x               exp(x)
+                [ 1.0L,           E                            ],
+                [ 0.5L,           0x1.a61298e1e069bc97p+0L     ],
+                [ 3.0L,           E*E*E                        ],
+                [ 0x1.1p+13L,     0x1.29aeffefc8ec645p+12557L  ], // near overflow
+                [ 0x1.7p+13L,     T.infinity                   ], // close overflow
+                [ 0x1p+80L,       T.infinity                   ], // far overflow
+                [ T.infinity,     T.infinity                   ],
+                [-0x1.18p+13L,    0x1.5e4bf54b4806db9p-12927L  ], // near underflow
+                [-0x1.625p+13L,   0x1.a6bd68a39d11f35cp-16358L ], // ditto
+                [-0x1.62dafp+13L, 0x1.96c53d30277021dp-16383L  ], // near underflow - subnormal
+                [-0x1.643p+13L,   0x1p-16444L                  ], // ditto
+                [-0x1.645p+13L,   0                            ], // close underflow
+                [-0x1p+30L,       0                            ], // far underflow
+            ];
+        }
+        else static if (realFormat == RealFormat.ieeeDouble)
+        {
+            static immutable T[2][] exptestpoints =
+            [ //  x,             exp(x)
+                [ 1.0L,          E                        ],
+                [ 0.5L,          0x1.a61298e1e069cp+0L    ],
+                [ 3.0L,          E*E*E                    ],
+                [ 0x1.6p+9L,     0x1.93bf4ec282efbp+1015L ], // near overflow
+                [ 0x1.7p+9L,     T.infinity               ], // close overflow
+                [ 0x1p+80L,      T.infinity               ], // far overflow
+                [ T.infinity,    T.infinity               ],
+                [-0x1.6p+9L,     0x1.44a3824e5285fp-1016L ], // near underflow
+                [-0x1.64p+9L,    0x0.06f84920bb2d4p-1022L ], // near underflow - subnormal
+                [-0x1.743p+9L,   0x0.0000000000001p-1022L ], // ditto
+                [-0x1.8p+9L,     0                        ], // close underflow
+                [-0x1p+30L,      0                        ], // far underflow
+            ];
+        }
+        else static if (realFormat == RealFormat.ieeeSingle)
+        {
+            static immutable T[2][] exptestpoints =
+            [ //  x,             exp(x)
+                [ 1.0L,          E                ],
+                [ 0.5L,          0x1.a61299p+0L   ],
+                [ 3.0L,          E*E*E            ],
+                [ 0x1.62p+6L,    0x1.99b988p+127L ], // near overflow
+                [ 0x1.7p+6L,     T.infinity       ], // close overflow
+                [ 0x1p+80L,      T.infinity       ], // far overflow
+                [ T.infinity,    T.infinity       ],
+                [-0x1.5cp+6L,    0x1.666d0ep-126L ], // near underflow
+                [-0x1.7p+6L,     0x0.026a42p-126L ], // near underflow - subnormal
+                [-0x1.9cp+6L,    0x0.000002p-126L ], // ditto
+                [-0x1.ap+6L,     0                ], // close underflow
+                [-0x1p+30L,      0                ], // far underflow
+            ];
+        }
+        else
+            static assert(0, "No exp() tests for real type!");
+
+        const minEqualMantissaBits = T.mant_dig - 2;
+        T x;
+        IeeeFlags f;
+        foreach (ref pair; exptestpoints)
+        {
+            resetIeeeFlags();
+            x = exp(pair[0]);
+            f = ieeeFlags;
+            assert(feqrel(x, pair[1]) >= minEqualMantissaBits);
+            //printf("exp(%La) = %La, should be %La\n", cast(real) pair[0], cast(real) x, cast(real) pair[1]);
+
+            version (IeeeFlagsSupport)
+            {
+                // Check the overflow bit
+                if (x == T.infinity)
+                {
+                    // don't care about the overflow bit if input was inf
+                    // (e.g., the LLVM intrinsic doesn't set it on Linux x86_64)
+                    assert(pair[0] == T.infinity || f.overflow);
+                }
+                else
+                    assert(!f.overflow);
+                // Check the underflow bit
+                assert(f.underflow == (fabs(x) < T.min_normal));
+                // Invalid and div by zero shouldn't be affected.
+                assert(!f.invalid);
+                assert(!f.divByZero);
+            }
+        }
+        // Ideally, exp(0) would not set the inexact flag.
+        // Unfortunately, fldl2e sets it!
+        // So it's not realistic to avoid setting it.
+        assert(exp(cast(T) 0.0) == 1.0);
+
+        // NaN propagation. Doesn't set flags, bcos was already NaN.
+        resetIeeeFlags();
+        x = exp(T.nan);
+        f = ieeeFlags;
+        assert(isIdentical(abs(x), T.nan));
+        assert(f.flags == 0);
+
+        resetIeeeFlags();
+        x = exp(-T.nan);
+        f = ieeeFlags;
+        assert(isIdentical(abs(x), T.nan));
+        assert(f.flags == 0);
+
+        x = exp(NaN(0x123));
+        assert(isIdentical(x, NaN(0x123)));
+    }
+
+    import std.meta : AliasSeq;
+    foreach (T; AliasSeq!(real, double, float))
+        testExp!T();
+
+    // High resolution test (verified against GNU MPFR/Mathematica).
+    assert(exp(0.5L) == 0x1.A612_98E1_E069_BC97_2DFE_FAB6_DF34p+0L);
+}
+
+@system unittest
+{
     assert(equalsDigit(exp(3.0L), E * E * E, useDigits));
 }
 
@@ -2951,132 +3097,6 @@ private T exp2Impl(T)(T x) @nogc @safe pure nothrow
         assert( core.stdc.math.exp2l(0.0L) == 1 );
     }
 }
-
-@system unittest
-{
-    FloatingPointControl ctrl;
-    if (FloatingPointControl.hasExceptionTraps)
-        ctrl.disableExceptions(FloatingPointControl.allExceptions);
-    ctrl.rounding = FloatingPointControl.roundToNearest;
-
-    static if (real.mant_dig == 113)
-    {
-        static immutable real[2][] exptestpoints =
-        [ //  x               exp(x)
-            [ 1.0L,           E                                        ],
-            [ 0.5L,           0x1.a61298e1e069bc972dfefab6df34p+0L     ],
-            [ 3.0L,           E*E*E                                    ],
-            [ 0x1.6p+13L,     0x1.6e509d45728655cdb4840542acb5p+16250L ], // near overflow
-            [ 0x1.7p+13L,     real.infinity                            ], // close overflow
-            [ 0x1p+80L,       real.infinity                            ], // far overflow
-            [ real.infinity,  real.infinity                            ],
-            [-0x1.18p+13L,    0x1.5e4bf54b4807034ea97fef0059a6p-12927L ], // near underflow
-            [-0x1.625p+13L,   0x1.a6bd68a39d11fec3a250cd97f524p-16358L ], // ditto
-            [-0x1.62dafp+13L, 0x0.cb629e9813b80ed4d639e875be6cp-16382L ], // near underflow - subnormal
-            [-0x1.6549p+13L,  0x0.0000000000000000000000000001p-16382L ], // ditto
-            [-0x1.655p+13L,   0                                        ], // close underflow
-            [-0x1p+30L,       0                                        ], // far underflow
-        ];
-    }
-    else static if (real.mant_dig == 64) // 80-bit reals
-    {
-        static immutable real[2][] exptestpoints =
-        [ //  x               exp(x)
-            [ 1.0L,           E                            ],
-            [ 0.5L,           0x1.a61298e1e069bc97p+0L     ],
-            [ 3.0L,           E*E*E                        ],
-            [ 0x1.1p+13L,     0x1.29aeffefc8ec645p+12557L  ], // near overflow
-            [ 0x1.7p+13L,     real.infinity                ], // close overflow
-            [ 0x1p+80L,       real.infinity                ], // far overflow
-            [ real.infinity,  real.infinity                ],
-            [-0x1.18p+13L,    0x1.5e4bf54b4806db9p-12927L  ], // near underflow
-            [-0x1.625p+13L,   0x1.a6bd68a39d11f35cp-16358L ], // ditto
-            [-0x1.62dafp+13L, 0x1.96c53d30277021dp-16383L  ], // near underflow - subnormal
-            [-0x1.643p+13L,   0x1p-16444L                  ], // ditto
-            [-0x1.645p+13L,   0                            ], // close underflow
-            [-0x1p+30L,       0                            ], // far underflow
-        ];
-    }
-    else static if (real.mant_dig == 53) // 64-bit reals
-    {
-        static immutable real[2][] exptestpoints =
-        [ //  x,             exp(x)
-            [ 1.0L,          E                        ],
-            [ 0.5L,          0x1.a61298e1e069cp+0L    ],
-            [ 3.0L,          E*E*E                    ],
-            [ 0x1.6p+9L,     0x1.93bf4ec282efbp+1015L ], // near overflow
-            [ 0x1.7p+9L,     real.infinity            ], // close overflow
-            [ 0x1p+80L,      real.infinity            ], // far overflow
-            [ real.infinity, real.infinity            ],
-            [-0x1.6p+9L,     0x1.44a3824e5285fp-1016L ], // near underflow
-            [-0x1.64p+9L,    0x0.06f84920bb2d4p-1022L ], // near underflow - subnormal
-            [-0x1.743p+9L,   0x0.0000000000001p-1022L ], // ditto
-            [-0x1.8p+9L,     0                        ], // close underflow
-            [-0x1p30L,       0                        ], // far underflow
-        ];
-    }
-    else
-        static assert(0, "No exp() tests for real type!");
-
-    const minEqualMantissaBits = real.mant_dig - 2;
-    real x;
-    IeeeFlags f;
-    foreach (ref pair; exptestpoints)
-    {
-        resetIeeeFlags();
-        x = exp(pair[0]);
-        f = ieeeFlags;
-        assert(feqrel(x, pair[1]) >= minEqualMantissaBits);
-
-        version (IeeeFlagsSupport)
-        {
-          // LDC specific: only test over-/underflow bits if real is 80 bits;
-          // neither the official non-asm D implementation nor the llvm.exp.f64
-          // intrinsic on Win64 (and probably other targets) set these bits
-          version (LDC) static if (real.mant_dig == 64)
-          {
-            // Check the overflow bit
-            if (x == real.infinity)
-            {
-                // don't care about the overflow bit if input was inf
-                // (e.g., the LLVM intrinsic doesn't set it on Linux x86_64)
-                assert(pair[0] == real.infinity || f.overflow);
-            }
-            else
-                assert(!f.overflow);
-            // Check the underflow bit
-            assert(f.underflow == (fabs(x) < real.min_normal));
-          }
-            // Invalid and div by zero shouldn't be affected.
-            assert(!f.invalid);
-            assert(!f.divByZero);
-        }
-    }
-    // Ideally, exp(0) would not set the inexact flag.
-    // Unfortunately, fldl2e sets it!
-    // So it's not realistic to avoid setting it.
-    assert(exp(0.0L) == 1.0);
-
-    // NaN propagation. Doesn't set flags, bcos was already NaN.
-    resetIeeeFlags();
-    x = exp(real.nan);
-    f = ieeeFlags;
-    assert(isIdentical(abs(x), real.nan));
-    assert(f.flags == 0);
-
-    resetIeeeFlags();
-    x = exp(-real.nan);
-    f = ieeeFlags;
-    assert(isIdentical(abs(x), real.nan));
-    assert(f.flags == 0);
-
-    x = exp(NaN(0x123));
-    assert(isIdentical(x, NaN(0x123)));
-
-    // High resolution test (verified against GNU MPFR/Mathematica).
-    assert(exp(0.5L) == 0x1.A612_98E1_E069_BC97_2DFE_FAB6_DF34p+0L);
-}
-
 
 /**
  * Calculate cos(y) + i sin(y).
